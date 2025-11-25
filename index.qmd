@@ -1,0 +1,122 @@
+---
+title: "Importação e Manipulação"
+subtitle: "Julia vs R vs Python"
+author: "Nosso Grupo"
+format:
+  revealjs:
+    theme: moon
+    transition: slide
+    scrollable: true
+    code-copy: true
+    center: true
+engine: julia
+---
+
+## Introdução
+
+Comparativo de importação e manipulação de dados utilizando Julia, R e Python.
+
+**Objetivos:**
+1.  Geração e Importação (CSV, TXT, XLSX).
+2.  Manipulação com `DataFrames.jl`.
+3.  Benchmark de performance.
+
+---
+
+## 1. Criação das Bases (Julia)
+
+Geramos 3 arquivos para garantir testes justos:
+1.  **CSV Pequeno**: 10 linhas.
+2.  **TXT (Tab)**: Separador `\t`.
+3.  **CSV Grande**: 100.000 linhas ($N=10^5$).
+
+```{julia}
+#| echo: true
+#| eval: true
+#| output: false
+
+using CSV, DataFrames, XLSX, Random, Statistics
+
+# 1. CSV Pequeno
+df_peq = DataFrame(id=1:10, nome=["A","B","C","D","E","F","G","H","I","J"], val=rand(10))
+CSV.write("dados_pequenos.csv", df_peq)
+
+# 2. TXT (Tab)
+df_tab = DataFrame(prod=["A","B","C","D","E"], preco=rand(10:100, 5))
+CSV.write("dados_tab.txt", df_tab, delim='\t')
+
+# 3. CSV Grande (100k)
+Random.seed!(123)
+N = 100_000
+df_grande = DataFrame(id=1:N, cat=rand(["A","B","C"], N), val=rand(N))
+CSV.write("dados_grandes.csv", df_grande)
+
+# 4. Excel
+XLSX.writetable("dados.xlsx", collect(eachcol(df_peq)), string.(names(df_peq)), sheetname="Planilha1", overwrite=true)
+
+#| echo: true
+#| eval: true
+
+# Importação
+df_big = CSV.read("dados_grandes.csv", DataFrame)
+
+# Manipulação
+df_filt = filter(row -> row.cat == "A" && row.val > 0.5, df_big)
+
+# Transformação (Nova Coluna)
+df_filt.val_imposto = df_filt.val .* 1.10
+
+# Agrupamento e Média
+res = combine(groupby(df_big, :cat), :val => mean => :media)
+
+first(res, 3)
+
+#| echo: true
+#| eval: true
+
+using BenchmarkTools
+t_jl = @belapsed CSV.read("dados_grandes.csv", DataFrame)
+println("Julia: $(round(t_jl * 1000, digits=2)) ms")
+
+#| echo: true
+#| eval: true
+
+using RCall
+
+R"""
+library(data.table)
+if(file.exists("dados_grandes.csv")){
+  start <- Sys.time()
+  x <- fread("dados_grandes.csv")
+  end <- Sys.time()
+  t_r <- as.numeric(end - start)
+} else { t_r <- 0 }
+"""
+t_r = @rget t_r
+println("R (fread): $(round(t_r * 1000, digits=2)) ms")
+
+#| echo: true
+#| eval: true
+
+using PyCall
+
+py"""
+import pandas as pd
+import time
+try:
+  s = time.time()
+  df = pd.read_csv("dados_grandes.csv")
+  t_py = time.time() - s
+except:
+  t_py = 0
+"""
+t_py = py"t_py"
+println("Python: $(round(t_py * 1000, digits=2)) ms")
+
+#| echo: false
+#| eval: true
+
+using UnicodePlots
+langs = ["Julia", "R", "Python"]
+times = [t_jl, t_r, t_py] .* 1000
+barplot(langs, times, title="Tempo (ms) - Menor é melhor", color=:blue)
